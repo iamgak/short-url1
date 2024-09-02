@@ -10,7 +10,7 @@ Url-Cutter is a Laravel-based URL shortener that shortens URLs and provides a ha
 
 ### Getting Started
 
-- Clone the repository: git clone https://github.com/your-username/url-cutter.git
+- Clone the repository: git clone https://github.com/iamgak/url-cutter.git
 - Install dependencies: composer install
 - Configure your database: cp .env.example .env and update the database settings
 - Run migrations: php artisan migrate
