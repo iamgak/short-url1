@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\UrlShortner;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Http\Request;
 
 const base62Chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -34,48 +34,48 @@ class ShortUrlController extends Controller
         $url = $request->input("long_url");
         $urlShortners = UrlShortner::whereDate('long_url', $url)->get();
         echo "Form submitted successfully! $url -" . $this->base62Decode($url);
-
-        foreach ($urlShortners as $urlShortner) {
-            echo "ID: " . $urlShortner->id . "<br>";
-            echo "Active: " . $urlShortner->active . "<br>";
-            echo "Traffic: " . $urlShortner->traffic . "<br>";
-            echo "Long URL: " . $urlShortner->long_url . "<br>";
-            echo "Hash Value: " . $urlShortner->hash_value . "<br>";
-            echo "Created At: " . $urlShortner->created_at . "<br>";
-            echo "<hr>";
-        }
         exit;
     }
 
-    public function add_shortner(Request $request)
-    {        // Validate the form data
-        // $request->validate([
-        //     'long_url' => 'required|string|max:255',
-        // ]);
 
-        // session()->flash('success', 'Form submitted successfully!');
-        // return redirect()->route('/');
-        $inputValue = $request->input('long_url');
+    public function add(Request $request)
+    {
+        $longUrl = $request->input('long_url');
+    
+        // Check if long URL is present in Redis
+        $hashValue = Redis::get($longUrl);
+        if ($hashValue) {
+            // If present in Redis, return the hash value
+            return response()->json(['hash_value' => $hashValue]);
+        }
+    
+        // If not present in Redis, check in database
+        $urlShortner = UrlShortner::where('long_url', $longUrl)->first();
+        if ($urlShortner) {
+            // If present in database, return the hash value
+            $hashValue = $urlShortner->hash_value;
+            Redis::set($longUrl, $hashValue); // Store in Redis for future requests
+            return response()->json(['hash_value' => $hashValue]);
+        }
+    
+        // If not present in database, create a new URL shortner
         $urlShortner = UrlShortner::create([
-            'active' => 1,
+            'active' => 0,
             'traffic' => 0,
-            'long_url' => $inputValue,
-            'traffic' => 0,
+            'long_url' => $longUrl,
         ]);
-
-        $hash_value = $this->base62Encode($inputValue);
+    
+        $hashValue = $this->base62Encode($urlShortner->id);
         // Update the record
         UrlShortner::where('id', $urlShortner->id)->update([
-            'hash_value' => $hash_value,
-            'active' => 0,
+            'hash_value' => $hashValue,
+            'active' => 1,
         ]);
-
-
-        echo "Form submitted successfully! $inputValue -" . $hash_value;
-        exit;
+    
+        Redis::set($longUrl, $hashValue); // Store in Redis for future requests
+        return response()->json(['hash_value' => $hashValue]);
     }
-
-    public function base62Encode($id)
+        public function base62Encode($id)
     {
         $base62 = "";
         $i = $id;
