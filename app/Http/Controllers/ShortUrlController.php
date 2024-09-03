@@ -9,73 +9,80 @@ use Illuminate\Http\Request;
 const base62Chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 class ShortUrlController extends Controller
 {
-    public function get_shortner(Request $request)
+    public function home()
     {
-        $hash_url = $request->input("hash_url");
-        $urlShortners = UrlShortner::where('hash_value', $hash_url)->get();
-        echo "Form submitted successfully! $hash_url -" . $this->base62Decode($hash_url);
+        echo "Welcome to URL Cutter. Homepage!!";
+        exit;
+    }
 
-        foreach ($urlShortners as $urlShortner) {
-            echo "ID: " . $urlShortner->id . "<br>";
-            echo "Active: " . $urlShortner->active . "<br>";
-            echo "Traffic: " . $urlShortner->traffic . "<br>";
-            echo "Long URL: " . $urlShortner->long_url . "<br>";
-            echo "Hash Value: " . $urlShortner->hash_value . "<br>";
-            echo "Created At: " . $urlShortner->created_at . "<br>";
-            echo "<hr>";
+
+    public function redirect($hashValue)
+    {
+        // Check if long URL is present in Redis
+        $longUrl = Redis::get($hashValue);
+        if (!$longUrl) {
+            // If not present in Redis, check in database
+            $urlShortner = UrlShortner::where('hash_value', $hashValue)
+                ->where('active', 1)
+                ->first();
+            // if no record is available then it is inactive or wrong hash value
+            if (!$urlShortner) {
+                return  "No record found";
+            }
+            // Update the record
+            UrlShortner::where('id', $urlShortner->id)->update([
+                'traffic' => $urlShortner->traffic + 1,
+                // 'updated_at' => timestamp()
+            ]);
+
+            //redirect to long_url in future
+            $longUrl = $urlShortner->long_url;
+            Redis::set($hashValue, $longUrl); // Store in Redis for future requests
         }
 
-        exit;
+
+        return response()->json(['long_url' => $longUrl]);
     }
-
-
-    public function get_url(Request $request)
-    {
-        $url = $request->input("long_url");
-        $urlShortners = UrlShortner::whereDate('long_url', $url)->get();
-        echo "Form submitted successfully! $url -" . $this->base62Decode($url);
-        exit;
-    }
-
 
     public function add(Request $request)
     {
         $longUrl = $request->input('long_url');
-    
+        if ($longUrl == "") {
+            return response()->json(['error' => 'Empty URL!!']);
+        }
+
         // Check if long URL is present in Redis
+        
+        // need to do in today most probably
         $hashValue = Redis::get($longUrl);
-        if ($hashValue) {
-            // If present in Redis, return the hash value
-            return response()->json(['hash_value' => $hashValue]);
+        if (!$hashValue) {
+            // If not present in Redis, check in database
+            $urlShortner = UrlShortner::where('long_url', $longUrl)->first();
+            if ($urlShortner) {
+                $hashValue = $urlShortner->hash_value;
+            } else {
+                // If not present in database, create a new URL shortner
+                $urlShortner = UrlShortner::create([
+                    'active' => 0,
+                    'traffic' => 0,
+                    'long_url' => $longUrl,
+                ]);
+
+                $hashValue = $this->base62Encode($urlShortner->id);
+                UrlShortner::where('id', $urlShortner->id)->update([
+                    'hash_value' => $hashValue,
+                    'active' => 1,
+                ]);
+            }
+
+            Redis::set($hashValue, $longUrl); // Store in Redis for future requests
         }
-    
-        // If not present in Redis, check in database
-        $urlShortner = UrlShortner::where('long_url', $longUrl)->first();
-        if ($urlShortner) {
-            // If present in database, return the hash value
-            $hashValue = $urlShortner->hash_value;
-            Redis::set($longUrl, $hashValue); // Store in Redis for future requests
-            return response()->json(['hash_value' => $hashValue]);
-        }
-    
-        // If not present in database, create a new URL shortner
-        $urlShortner = UrlShortner::create([
-            'active' => 0,
-            'traffic' => 0,
-            'long_url' => $longUrl,
-        ]);
-    
-        $hashValue = $this->base62Encode($urlShortner->id);
-        // Update the record
-        UrlShortner::where('id', $urlShortner->id)->update([
-            'hash_value' => $hashValue,
-            'active' => 1,
-        ]);
-    
-        Redis::set($longUrl, $hashValue); // Store in Redis for future requests
+
         return response()->json(['hash_value' => $hashValue]);
     }
-        public function base62Encode($id)
+
+
+    public function base62Encode($id)
     {
         $base62 = "";
         $i = $id;
@@ -94,7 +101,7 @@ class ShortUrlController extends Controller
         $hash = strrev($hash);
         $i = 0;
         while ($i < strlen($hash)) {
-            $value += $this->search1(str_split($hash)[$i]) * pow(16, $i);
+            $value += $this->search(str_split($hash)[$i]) * pow(16, $i);
             $i++;
         }
 
@@ -102,20 +109,22 @@ class ShortUrlController extends Controller
     }
 
 
-    function search1($string)
+    function search($string)
     {
         if (preg_match("/\d/", $string)) {
-            return $this->search(0, 9, $string, 0);
+            $initial = 0;
+            $final = 9;
+            $i = 0;
         } else if (preg_match("/[A-Z]/", $string)) {
-            return $this->search('A', 'Z', $string, 10);
+            $initial = 'A';
+            $final = 'Z';
+            $i = 10;
         } else if (preg_match("/[a-z]/", $string)) {
-            return $this->search('a', 'z', $string, 36);
+            $initial = 'a';
+            $final = 'z';
+            $i = 36;
         }
-    }
 
-
-    function search($initial, $final, $string, $i)
-    {
         foreach (range($initial, $final) as $elements) {
             if ($elements == $string) {
                 return $i;
