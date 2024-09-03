@@ -5,8 +5,9 @@ Url-Cutter is a Laravel-based URL shortener that shortens URLs and provides a ha
 ### Features
 
 - Shorten URLs with a unique hashed value
-- Low collision percentage for reliable URL shortening
+- Low collision percentage for reliable URL shortening(After Trillion Records)
 - Easy to use and integrate with your application
+- Rate Limiter
 
 ### Getting Started
 
